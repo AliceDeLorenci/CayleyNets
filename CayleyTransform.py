@@ -1,5 +1,6 @@
 import numpy as np
 
+import matplotlib
 import matplotlib.pyplot as plt
 plt.rcParams["font.family"] = "Times New Roman"
 
@@ -103,4 +104,26 @@ class CayleyTransform:
         x, y = generate_semicircle()
         plt.plot(x, y, 'k', linewidth=0.5)
 
+        plt.show()
+
+class ScalarCayleyTranform:
+
+    @staticmethod
+    def cayley_transform(x):
+        return (x - 1j)/(x + 1j)
+    
+    @staticmethod
+    def plot(x):
+
+        Cx = ScalarCayleyTranform.cayley_transform(x)
+
+        plt.figure(figsize=(5,4))
+        img = plt.scatter(Cx.real, Cx.imag, c=x, marker='o', s=2, norm=matplotlib.colors.SymLogNorm(linthresh=1e-5), cmap="hsv")
+
+        cb = plt.colorbar(img, aspect=50)
+        cb.outline.set_visible(False)
+        cb.ax.tick_params(length=0)
+
+        plt.xlim([-1.1,1.1])
+        plt.ylim([-1.1,1.1])
         plt.show()

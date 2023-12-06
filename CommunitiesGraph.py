@@ -10,7 +10,7 @@ class CommunitiesGraph:
     Generate a synthetic n-communities graph.
     """
 
-    def __init__(self, n_community, p, q, n):
+    def __init__(self, n_community, p, q, n, seed=0):
         """
         Generate a random graph with n_community communities, p intra-community probability, q inter-community probability and n nodes.
         
@@ -25,6 +25,8 @@ class CommunitiesGraph:
         n : int
             Number of nodes
         """
+        np.random.seed(seed)
+        
         label = np.zeros(n, dtype=int)
         position = np.zeros( (n,2) )
         adjacency = np.zeros( (n,n) )
