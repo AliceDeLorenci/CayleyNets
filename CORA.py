@@ -8,17 +8,14 @@ class CORA():
     """
     def __init__(self):
         self.dataset = load_netset('cora')
-        self.adjacency = directed2undirected(self.dataset.adjacency)
-        self.features = self.dataset.biadjacency.toarray()
-        self.labels = self.dataset.labels
+        self.adjacency = directed2undirected(self.dataset.adjacency) # undirected graph
+        self.features = self.dataset.biadjacency.toarray() # features are given by the biadjacency matrix (between articles and words)
+        self.labels = self.dataset.labels # labels are article categories
 
-        self.n_nodes = self.adjacency.shape[0]
+        self.n = self.adjacency.shape[0]
         self.n_edges = self.adjacency.nnz/2
         self.n_features = self.features.shape[1]
         self.n_classes = self.labels.max() + 1
 
         self.name = 'CORA'
         self.description = 'CORA dataset'
-        self.url = 'https://linqs-data.soe.ucsc.edu/public/lbc/cora.tgz'
-        self.path = 'cora/cora.cites'
-        self.path2 = 'cora/cora.content'
