@@ -113,17 +113,25 @@ class ScalarCayleyTranform:
         return (x - 1j)/(x + 1j)
     
     @staticmethod
+    def inverse_cayley_transform(z):
+        return -1j*(z + 1)/(z - 1)
+    
+    @staticmethod
     def plot(x):
 
         Cx = ScalarCayleyTranform.cayley_transform(x)
 
         plt.figure(figsize=(5,4))
-        img = plt.scatter(Cx.real, Cx.imag, c=x, marker='o', s=2, norm=matplotlib.colors.SymLogNorm(linthresh=1e-5), cmap="hsv")
+        img = plt.scatter(Cx.real, Cx.imag, c=x, marker='o', s=2, norm=matplotlib.colors.SymLogNorm(linthresh=1e-5), cmap="Spectral")
 
         cb = plt.colorbar(img, aspect=50)
         cb.outline.set_visible(False)
         cb.ax.tick_params(length=0)
 
+        plt.xlabel('Re', fontsize=12)
+        plt.ylabel('Im', fontsize=12)
+
         plt.xlim([-1.1,1.1])
         plt.ylim([-1.1,1.1])
+        plt.savefig('scalar_cayley_transform.png', dpi=300)
         plt.show()
