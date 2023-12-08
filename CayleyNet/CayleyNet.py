@@ -51,7 +51,7 @@ class CLinear(nn.Module):
         return out
 
 
-def jacobi_torch(A, b, K, sparse = False):
+def jacobi_torch(A, b, K, sparse = True):
     ''' Ax = b, A is a symmetric matrix, Jacobi method with K iterations
     
     Parameters
@@ -69,6 +69,29 @@ def jacobi_torch(A, b, K, sparse = False):
         Solution of the system of shape (n, 1)
     '''
 
+    # Iterative method notation: u(k+1) = d + J@u(k)
+
+    # Obtain vector of 1/degrees
+    diag_inv = torch.diag(A)
+    diag_inv = torch.where(diag_inv==0, diag_inv, diag_inv**-1)
+    diag_inv = torch.reshape(diag_inv, (-1,1))
+
+    d = diag_inv.mul(b) # elementwise multiplication of diag_inv by each column of b
+
+    # Off diagonal matrix
+    off_diag = A - torch.diag( torch.diag(A) )
+    # CSR format affords efficient matrix-vector multiplication
+    # too bad that '_to_sparse_csr does not support automatic differentiation for outputs with complex dtype'
+    # off_diag = off_diag.to_sparse_csr() 
+
+    # initialize x 
+    x = b.clone()
+    # Jacobi iteration
+    for k in range(K):
+        x = d - diag_inv.mul( off_diag.matmul(x) )
+    return x
+
+    '''
     if sparse:
         indx_nonzero = A._indices()[0] == A._indices()[1]
         diag_indx_nonzero = A._indices()[0][indx_nonzero]
@@ -97,9 +120,7 @@ def jacobi_torch(A, b, K, sparse = False):
     for k in range(K):
         x = J @ x + b 
     return x
-
-
-
+    '''
 
 
 

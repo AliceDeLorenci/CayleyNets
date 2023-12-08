@@ -2,6 +2,7 @@ import numpy as np
 
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
 plt.rcParams["font.family"] = "Times New Roman"
 
 from scipy import linalg
@@ -119,12 +120,37 @@ class ScalarCayleyTranform:
     @staticmethod
     def plot(x):
 
+        class CayleyNormalize(colors.Normalize):
+            def __init__(self, vmin=None, vmax=None, clip=False):
+                colors.Normalize.__init__(self, vmin, vmax, clip)
+
+            def __call__(self, value, clip=None):
+
+                C = ScalarCayleyTranform.cayley_transform(value)
+                phi = np.angle(C) # [-pi, pi]
+                phi = np.where(phi<0 , 2*np.pi+phi, phi) # [0, 2pi]
+                phi = phi/(2*np.pi) # [0, 1]
+                return phi
+        
+        def colorbar_bounds():
+            phi = np.linspace(start=1e-5, stop=1-1e-5, num=1000)*2*np.pi
+            z = np.exp(1j*phi)
+            x = ScalarCayleyTranform.inverse_cayley_transform(z).real
+            return x
+
         Cx = ScalarCayleyTranform.cayley_transform(x)
 
         plt.figure(figsize=(5,4))
-        img = plt.scatter(Cx.real, Cx.imag, c=x, marker='o', s=2, norm=matplotlib.colors.SymLogNorm(linthresh=1e-5), cmap="Spectral")
 
-        cb = plt.colorbar(img, aspect=50)
+        # img = plt.scatter(Cx.real, Cx.imag, c=x, marker='o', s=2, norm=matplotlib.colors.SymLogNorm(linthresh=1e-5), cmap="Spectral")
+        # cb = plt.colorbar(img, aspect=50)
+
+        s = 10 if len(x)<10 else 2
+        edgecolors = 'k' if len(x)<10 else 'face'
+        img = plt.scatter(Cx.real, Cx.imag, c=x, marker='o', s=s, edgecolors=edgecolors, linewidth=0.5, norm=CayleyNormalize(), cmap="Spectral")
+
+        bounds = colorbar_bounds()
+        cb = plt.colorbar(img, ticks=[-1e4,-1,0,1,1e4], aspect=50, boundaries=bounds)
         cb.outline.set_visible(False)
         cb.ax.tick_params(length=0)
 
