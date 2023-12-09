@@ -138,9 +138,11 @@ class CayleyConv(nn.Module):
         # L to dense matrix
         if self.sparse:
             A = add_self_loops(L[0], self.h * L[1], fill_value = torch.tensor(1j))
-            A = torch.sparse_coo_tensor(A[0], A[1]).coalesce()
+            # A = torch.sparse_coo_tensor(A[0], A[1]).coalesce()
+            A = torch.sparse_coo_tensor(A[0], A[1], torch.Size([x.size()[0], x.size()[0]])).coalesce()
             B = add_self_loops(L[0], self.h * L[1], fill_value = torch.tensor(-1j))
-            B = torch.sparse_coo_tensor(B[0], B[1]).coalesce()
+            # B = torch.sparse_coo_tensor(B[0], B[1]).coalesce()
+            B = torch.sparse_coo_tensor(B[0], B[1], torch.Size([x.size()[0], x.size()[0]])).coalesce()
         else:
             L = to_dense_adj(edge_index = L[0], edge_attr = L[1])
             # L is of size (1, N, N)
