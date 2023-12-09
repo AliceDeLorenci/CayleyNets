@@ -33,14 +33,40 @@ def jacobi_method(A, b, K):
     sparse = A.layout == torch.sparse_coo
 
     if sparse:  # sparse matrix representation
+        '''
         # Obtain vector of 1/degrees
         diag_nz_mask = A.indices()[0] == A._indices()[1]
         diag_nz_idx = A.indices()[0][diag_nz_mask]
         diag_inv = torch.zeros(A.size()[0], device = device, dtype=torch.complex64)
         diag_inv[diag_nz_idx] = 1/A.values()[diag_nz_mask]
+
+        diag_mat = torch.sparse_coo_tensor(diag_nz_idx.repeat(2,1), diag_inv, A.size(),  dtype=torch.complex64).coalesce()
+
         # Off diagonal matrix
         off_diag = A.clone() 
         off_diag.values()[diag_nz_mask] = 0.0
+
+        J = (-1.0) * diag_mat.matmul(off_diag)
+        d = diag_mat.matmul(b)
+        '''
+        # Obtain vector of 1/degrees
+        diag_nz_mask = A.indices()[0] == A._indices()[1]
+        diag_nz_idx = A.indices()[0][diag_nz_mask]
+        #diag_inv = torch.zeros(A.size()[0], device = device, dtype=torch.complex64)
+        #diag_inv[diag_nz_idx] = 1/A.values()[diag_nz_mask]
+        diag_inv = torch.sparse_coo_tensor(torch.stack([diag_nz_idx, diag_nz_idx]), 1/A.values()[diag_nz_mask],A.size()).coalesce()
+        # Off diagonal matrix
+        off_diag = A.clone() 
+        off_diag.values()[diag_nz_mask] = 0.0
+
+        d = diag_inv @ b 
+        # check if d is sparse or dense
+        # initialize x 
+        x = b.clone()
+        # Jacobi iteration
+        for k in range(K):
+            x = d - diag_inv @ off_diag.matmul(x.clone())
+        return x
 
     else: # dense matrix representation (A.layout == torch.strided)
         diag_inv = torch.diag(A)
@@ -51,15 +77,17 @@ def jacobi_method(A, b, K):
         # too bad that '_to_sparse_csr does not support automatic differentiation for outputs with complex dtype'
         # off_diag = off_diag.to_sparse_csr() 
 
-    diag_inv = torch.reshape(diag_inv, (-1,1))
-    d = diag_inv.mul(b) # elementwise multiplication of diag_inv by each column of b
+        diag_inv = torch.reshape(diag_inv, (-1,1))
+        d = diag_inv.mul(b) # elementwise multiplication of diag_inv by each column of b
 
-    # initialize x 
-    x = b.clone()
-    # Jacobi iteration
-    for k in range(K):
-        x = d - diag_inv.mul( off_diag.matmul(x) )
-    return x
+        J = (-1.0)*diag_inv.mul(off_diag)
+
+        # initialize x 
+        x = b.clone()
+        # Jacobi iteration
+        for k in range(K):
+            x = d + J.matmul(x)
+        return x
 
 
 class CayleyConv(nn.Module):
@@ -130,7 +158,7 @@ class CayleyConv(nn.Module):
         cumsum = 0 + 0j
         for i in range(1, self.r):
             # Jacobi method
-            b = B @ y_i
+            b = B@y_i
             y_i = jacobi_method(A, b, self.jacobi_iterations)
             cumsum = cumsum + self.c[i](y_i)
         #print('cumsum', cumsum)
@@ -157,11 +185,6 @@ class CayleyNet(torch.nn.Module):
         self.layers.append(CayleyConv(n_hidden, n_classes, r, normalization=normalization, sparse=sparse))
         self.p = p_dropout # dropout probability
 
-
-        # self.conv1 = CayleyConv(num_node_features, hidden_channels, r, normalization = normalizartion, bias = bias, sparse=sparse)
-        #self.pool = TopKPooling(hidden_channels, ratio=0.9)
-        # self.conv2 = CayleyConv(hidden_channels, hidden_channels, r, normalization = normalizartion, bias = bias, sparse=sparse)
-        # self.lin = Linear(hidden_channels, num_classes)
         self.sparse = sparse
         self.p_dropout = p_dropout
         self.normalizartion = normalization

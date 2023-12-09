@@ -53,20 +53,26 @@ def split_train_test_val(n_samples, test_samples=0.1, val_samples=0.1, seed=0):
 
 def eval_dgl_model(model, graph, features, labels, mask):
     '''Evaluate the model in terms of accuracy.'''
-    model.eval()
+    model.eval() 
+
+    labels_cpu = labels.cpu().detach()
+    mask_cpu = mask.cpu().detach()
     with torch.no_grad():
-        output = model(graph, features)
+        output = model(graph, features).cpu().detach()
         labels_pred = torch.max(output, dim=1)[1]
-        score = np.mean(np.array(labels[mask]) == np.array(labels_pred[mask]))
+        score = np.mean(np.array(labels_cpu[mask_cpu]) == np.array(labels_pred[mask_cpu]))
     return score
 
 def eval_pytorch_geometric_model(model, edge_index, features, labels, mask):
     '''Evaluate the model in terms of accuracy.'''
     model.eval()
+
+    labels_cpu = labels.cpu().detach()
+    mask_cpu = mask.cpu().detach()
     with torch.no_grad():
-        output = model(features, edge_index)
+        output = model(features, edge_index).cpu().detach()
         labels_pred = torch.max(output, dim=1)[1]
-        score = np.mean(np.array(labels[mask]) == np.array(labels_pred[mask]))
+        score = np.mean(np.array(labels_cpu[mask_cpu]) == np.array(labels_pred[mask_cpu]))
     return score
 
 def plot_loss(loss):
