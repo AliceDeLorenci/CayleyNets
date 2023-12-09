@@ -189,7 +189,7 @@ class CayleyNet(torch.nn.Module):
 
         self.sparse = sparse
         self.p_dropout = p_dropout
-        self.normalizartion = normalization
+        self.normalization = normalization
 
 
     def forward(self, x, edge_index):
