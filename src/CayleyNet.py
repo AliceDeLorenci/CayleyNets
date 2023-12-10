@@ -50,22 +50,82 @@ class ComplexLinear(torch.nn.Module):
     def __repr__(self):
         return (f'{self.__class__.__name__}({self.in_channels}, '
                 f'{self.out_channels}, bias={self.bias})')
-    
+
+
 
 def jacobi_method(A, b, K):
     '''
-    Computes approximate solution to
-    Ax = b, 
-    where A is a symmetric matrix using Jacobi's Method with K iterations
+    Computes approximate solution to Ax = b using Jacobi's Method with K iterations.
+
+    Jacobi Method
+    -------------
+    Let A = D + (L+U), where D is the diagonal matrix and (L+U) is the off diagonal matrix,
+    then, x is the solution to the following fixed point equation:
+    D@x = -(L+U)@x + b
+    Jacobi's iterations are of the form:
+    x(k) = D^{-1}@( b - (L+U)@x(k-1) )
+    denoting J = - D^{-1}@(L+U) and d = D^{-1}@b:
+    x(k) = d + J@x(k-1)
+
     
     Parameters
     ----------
     A : torch.Tensor 
         Symmetric matrix of shape (n, n)
     b : torch.Tensor
-        Vector of shape (n, 1)
+        Vector of shape (n, p)
     K : int
         Number of iterations
+    
+    Returns
+    -------
+    x : torch.Tensor
+        Solution of the system of shape (n, p)
+    '''
+
+    # Iterative method notation: u(k+1) = d + J@u(k)
+
+    assert A.layout == torch.strided, 'Sparse matrix: use sparse Jacobi instead'
+
+    diag_inv = torch.diag(A)
+    diag_inv = torch.where(diag_inv==0, diag_inv, diag_inv**-1)
+
+    off_diag = A - torch.diag( torch.diag(A) )
+
+    # CSR format affords efficient matrix-vector multiplication
+    # too bad that '_to_sparse_csr does not support automatic differentiation for outputs with complex dtype'
+    # off_diag = off_diag.to_sparse_csr() 
+
+    diag_inv = torch.reshape(diag_inv, (-1,1)) # column vector of inverse degrees
+    d = diag_inv.mul(b) # elementwise multiplication of diag_inv by each column of b, equivalent to D^{-1}@b
+
+    J = (-1.0)*diag_inv.mul(off_diag) # J = - D^{-1}@(L+U)
+
+    # initialize x 
+    x = b.clone()
+    # Jacobi iteration
+    for k in range(K):
+        x = d + J.matmul(x)
+    return x
+    
+def jacobi_method_sparse(A_idx, A_weight, b, jacobi_iterations, num_nodes):
+    '''
+    Computes approximate solution to Ax = b using Jacobi's Method with K iterations,
+    A should be in sparse COO format, where A_idx holds the data indices and A_weight the data values.
+
+    Jacobi Method
+    -------------
+    Let A = D + (L+U), where D is the diagonal matrix and (L+U) is the off diagonal matrix,
+    then, x is the solution to the following fixed point equation:
+    D@x = -(L+U)@x + b
+    Jacobi's iterations are of the form:
+    x(k) = D^{-1}@( b - (L+U)@x(k-1) )
+    denoting J = - D^{-1}@(L+U) and d = D^{-1}@b:
+    x(k) = d + J@x(k-1)
+    
+    Parameters
+    ----------
+
     
     Returns
     -------
@@ -73,66 +133,33 @@ def jacobi_method(A, b, K):
         Solution of the system of shape (n, 1)
     '''
 
-    # Iterative method notation: u(k+1) = d + J@u(k)
+    # Diagonal matrix
+    diag_nz_mask = A_idx[0,:] == A_idx[1,:]
+    diag_nz_weight = A_weight[diag_nz_mask]
 
-    sparse = A.layout == torch.sparse_coo
+    diag_weight = torch.zeros((num_nodes), dtype=A_weight.dtype, device=A_weight.device)  # initialize diagonal weights to zero 
+    diag_weight.scatter_add_(0, A_idx[1, diag_nz_mask], diag_nz_weight) # sum all diagonal entries for each node
 
-    if sparse:  # sparse matrix representation
-        '''
-        # Obtain vector of 1/degrees
-        diag_nz_mask = A.indices()[0] == A._indices()[1]
-        diag_nz_idx = A.indices()[0][diag_nz_mask]
-        diag_inv = torch.zeros(A.size()[0], device = device, dtype=torch.complex64)
-        diag_inv[diag_nz_idx] = 1/A.values()[diag_nz_mask]
+    diag_idx = torch.vstack([torch.arange(num_nodes),torch.arange(num_nodes)])
+    diag_idx = diag_idx.to(device)
 
-        diag_mat = torch.sparse_coo_tensor(diag_nz_idx.repeat(2,1), diag_inv, A.size(),  dtype=torch.complex64).coalesce()
+    off_diag_nz_mask = A_idx[0] != A_idx[1]
+    off_diag_nz_idx = A_idx[:,off_diag_nz_mask]
+    off_diag_nz_weight = A_weight[off_diag_nz_mask]
 
-        # Off diagonal matrix
-        off_diag = A.clone() 
-        off_diag.values()[diag_nz_mask] = 0.0
+    inv_diag = diag_weight**-1
+    inv_diag[inv_diag == torch.inf] = 0
 
-        J = (-1.0) * diag_mat.matmul(off_diag)
-        d = diag_mat.matmul(b)
-        '''
-        # Obtain vector of 1/degrees
-        diag_nz_mask = A.indices()[0] == A._indices()[1]
-        diag_nz_idx = A.indices()[0][diag_nz_mask]
-        #diag_inv = torch.zeros(A.size()[0], device = device, dtype=torch.complex64)
-        #diag_inv[diag_nz_idx] = 1/A.values()[diag_nz_mask]
-        diag_inv = torch.sparse_coo_tensor(torch.stack([diag_nz_idx, diag_nz_idx]), 1/A.values()[diag_nz_mask],A.size()).coalesce()
-        # Off diagonal matrix
-        off_diag = A.clone() 
-        off_diag.values()[diag_nz_mask] = 0.0
+    
+    J = - torch.sparse.mm(torch.sparse_coo_tensor(diag_idx, inv_diag, torch.Size([num_nodes,num_nodes])),
+                            torch.sparse_coo_tensor(off_diag_nz_idx, off_diag_nz_weight, torch.Size([num_nodes,num_nodes])))
+    d = torch.sparse.mm(torch.sparse_coo_tensor(diag_idx, inv_diag, torch.Size([num_nodes,num_nodes])),b)
+    
+    x = d.clone()
+    for k in range(jacobi_iterations):
+        x = torch.sparse.mm(J,x) + d
 
-        d = diag_inv @ b 
-        # check if d is sparse or dense
-        # initialize x 
-        x = b.clone()
-        # Jacobi iteration
-        for k in range(K):
-            x = d - diag_inv @ off_diag.matmul(x.clone())
-        return x
-
-    else: # dense matrix representation (A.layout == torch.strided)
-        diag_inv = torch.diag(A)
-        diag_inv = torch.where(diag_inv==0, diag_inv, diag_inv**-1)
-
-        off_diag = A - torch.diag( torch.diag(A) )
-        # CSR format affords efficient matrix-vector multiplication
-        # too bad that '_to_sparse_csr does not support automatic differentiation for outputs with complex dtype'
-        # off_diag = off_diag.to_sparse_csr() 
-
-        diag_inv = torch.reshape(diag_inv, (-1,1))
-        d = diag_inv.mul(b) # elementwise multiplication of diag_inv by each column of b
-
-        J = (-1.0)*diag_inv.mul(off_diag)
-
-        # initialize x 
-        x = b.clone()
-        # Jacobi iteration
-        for k in range(K):
-            x = d + J.matmul(x)
-        return x
+    return x
 
 
 class CayleyConv(nn.Module):
@@ -180,7 +207,11 @@ class CayleyConv(nn.Module):
         """
         Source: https://github.com/WhiteNoyse/SiGCN
         """
-        L = get_laplacian(edge_index, edge_weight, self.normalization, dtype=torch.complex64)
+        num_nodes = x.shape[0]
+        L_edge_index, L_edge_weight = get_laplacian(edge_index, edge_weight, 
+                                                    normalization=self.normalization, dtype=torch.complex64,
+                                                    num_nodes=num_nodes)
+        
         #L = torch.sparse_coo_tensor(L[0], L[1]).coalesce()
         #L = self.h * L
         #edge_index = edge_index.to(device)
@@ -188,12 +219,11 @@ class CayleyConv(nn.Module):
         #Jacobi method
         # L to dense matrix
         if self.sparse:
-            A = add_self_loops(L[0], self.h * L[1], fill_value = torch.tensor(1j))
-            # A = torch.sparse_coo_tensor(A[0], A[1]).coalesce()
-            A = torch.sparse_coo_tensor(A[0], A[1], torch.Size([x.size()[0], x.size()[0]])).coalesce()
-            B = add_self_loops(L[0], self.h * L[1], fill_value = torch.tensor(-1j))
-            # B = torch.sparse_coo_tensor(B[0], B[1]).coalesce()
-            B = torch.sparse_coo_tensor(B[0], B[1], torch.Size([x.size()[0], x.size()[0]])).coalesce()
+            L_edge_weight_zoomed = self.h*L_edge_weight
+
+            A_idx, A_weight = add_self_loops(edge_index=L_edge_index, edge_attr=L_edge_weight_zoomed, fill_value=torch.tensor(-1j))  # h*Delta - i*Id
+            B_idx, B_weight = add_self_loops(edge_index=L_edge_index, edge_attr=L_edge_weight_zoomed, fill_value=torch.tensor(1j))  # h*Delta + i*Id  
+
         else:
             L = to_dense_adj(edge_index = L[0], edge_attr = L[1])
             # L is of size (1, N, N)
@@ -205,16 +235,18 @@ class CayleyConv(nn.Module):
 
         
         # A = (hL + iI),  b = (hL - iI)x
-        y_i = torch.complex(x, torch.zeros(x.size(), device = device))
+
+        y_i = x.to(torch.complex64)
+
+        B = torch.sparse_coo_tensor(B_idx, B_weight, torch.Size([num_nodes,num_nodes]),device=device) 
         
-        # B = hL - iI
         cumsum = 0 + 0j
         for i in range(1, self.r+1):
         # for i in range(0, self.r):
             # Jacobi method
-            b = B@y_i
-            y_i = jacobi_method(A, b, self.jacobi_iterations)
-            cumsum = cumsum + self.c[i](y_i)
+            b = torch.sparse.mm(B, y_i)
+            y_i = jacobi_method_sparse(A_idx, A_weight, b, self.jacobi_iterations, num_nodes)
+            cumsum += self.c[i](y_i)
         #print('cumsum', cumsum)
 
         # return self.c0(x) + 2*torch.real(cumsum)
