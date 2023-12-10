@@ -2,10 +2,55 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import Parameter
+from torch_geometric.nn.dense.linear import Linear
 from torch_geometric.utils import get_laplacian, add_self_loops, to_dense_adj
 
 # Check if GPU is available
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+class ComplexLinear(torch.nn.Module):
+
+    ''' 
+    Linear layer for complex valued weights and inputs
+
+    For a complex valued input $z = a + ib $ and a complex valued weight $M=M_R+iM_b, the output is
+    $Mz = M_R a - M_I b + i ( M_I a + M_R b)$
+
+    Parameters
+    ----------
+    in_features : int
+        Number of input features
+    out_features : int
+        Number of output features
+    bias : bool
+        If True, adds a learnable complex bias to the output
+    '''
+
+    def __init__(self, in_channels, out_channels, bias=False, weight_initializer='glorot'):
+        super(ComplexLinear, self).__init__()
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.bias = bias
+
+        self.linear_re = Linear(in_channels, out_channels, bias=bias, weight_initializer=weight_initializer)
+        self.linear_im = Linear(in_channels, out_channels, bias=bias, weight_initializer=weight_initializer)
+
+    def reset_parameters(self):
+        self.linear_re.reset_parameters()
+        self.linear_im.reset_parameters()
+
+    def forward(self,x):
+        # (a + ib) * (c + id) = (ac - bd) + i(ad + bc)
+        x_re = self.linear_re(x.real) - self.linear_im(x.imag)
+        x_im = self.linear_re(x.real) + self.linear_im(x.imag)
+        
+        return torch.complex(x_re, x_im)   
+         
+    def __repr__(self):
+        return (f'{self.__class__.__name__}({self.in_channels}, '
+                f'{self.out_channels}, bias={self.bias})')
+    
 
 def jacobi_method(A, b, K):
     '''
@@ -101,18 +146,24 @@ class CayleyConv(nn.Module):
 
         assert r > 0, 'Invalid polynomial degree'
         assert normalization in [None, 'sym', 'rw'], 'Invalid normalization'
-
-        self.normalization = normalization
+        
         self.in_channels = in_channels
         self.out_channels = out_channels
+        self.normalization = normalization
         
         self.jacobi_iterations = jacobi_iterations
 
         self.sparse = sparse
         
         self.r = r 
-        self.c0 = nn.Linear(in_channels, out_channels, device = device, bias = False)
-        self.c = [torch.nn.Linear(in_channels, out_channels, device = device, bias = False).to(torch.cfloat) for _ in range(r)]  # c parameter
+
+        self.c = torch.nn.ModuleList(
+            [Linear(in_channels, out_channels, bias = False, weight_initializer='glorot')]+
+            [ComplexLinear(in_channels, out_channels, bias=False, weight_initializer='glorot') for _ in range(r)]
+                   )
+
+        # self.c0 = nn.Linear(in_channels, out_channels, device = device, bias = False)
+        # self.c = torch.nn.ModuleList( [torch.nn.Linear(in_channels, out_channels, device = device, bias = False).to(torch.cfloat) for _ in range(r)] )  # c parameter
         self.h = Parameter(torch.ones(1, device = device))  # zoom parameter
             
         self.reset_parameters()
@@ -120,7 +171,7 @@ class CayleyConv(nn.Module):
 
     def reset_parameters(self):
         self.h = Parameter(torch.ones(1, device = device))
-        self.c0.reset_parameters()
+        # self.c0.reset_parameters()
         for c in self.c:
             c.reset_parameters()
             
@@ -158,14 +209,16 @@ class CayleyConv(nn.Module):
         
         # B = hL - iI
         cumsum = 0 + 0j
-        for i in range(1, self.r):
+        for i in range(1, self.r+1):
+        # for i in range(0, self.r):
             # Jacobi method
             b = B@y_i
             y_i = jacobi_method(A, b, self.jacobi_iterations)
             cumsum = cumsum + self.c[i](y_i)
         #print('cumsum', cumsum)
 
-        return self.c0(x) + 2*torch.real(cumsum)
+        # return self.c0(x) + 2*torch.real(cumsum)
+        return self.c[0](x) + 2*torch.real(cumsum)
 
     def __repr__(self):
         return '{}({}, {}, r={}, normalization={})'.format(

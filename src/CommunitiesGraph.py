@@ -68,9 +68,11 @@ class CommunitiesGraph(Dataset.Dataset):
         self.name = 'Communities'
         self.description = 'Communities dataset'
 
-    def display(self):
+    def display(self, labels=None):
         """
         Display the graph.
         """
-        image = svg_graph(sparse.csr_matrix(self.adjacency), self.positions, labels=self.labels, node_size=2, edge_width=0.05)
+        if labels is None:
+            labels=self.labels
+        image = svg_graph(sparse.csr_matrix(self.adjacency), self.positions, labels=labels, node_size=2, edge_width=0.05)
         display( SVG(image) )
