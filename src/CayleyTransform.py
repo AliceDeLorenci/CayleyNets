@@ -13,15 +13,17 @@ class CayleyTransform:
     Cayley transform of a graph Laplacian. Provides static methods for computing the Laplacian, the spectrum and the Cayley transform.
     """
 
-    def __init__(self, adjacency):
+    def __init__(self, adjacency, normalize=False):
         assert( np.allclose(adjacency, adjacency.T) ) # the graph should be undirected
+
+        self.normalize=normalize
 
         self.A = adjacency
 
         self.L = CayleyTransform.laplacian(self.A)
         self.Ln = CayleyTransform.normalized_laplacian(self.A)
 
-        self.spectrum = np.sort( CayleyTransform.compute_spectrum(self.L).real )
+        self.spectrum = np.sort( CayleyTransform.compute_spectrum(self.L).real ) if not self.normalize else np.sort( CayleyTransform.compute_spectrum(self.Ln).real )
 
         self.CL = None
         self.C_spectrum = None
@@ -51,7 +53,7 @@ class CayleyTransform:
     
     def transform(self, h):
         """Cayley transform of the unnormalized Laplacian with zoom parameter h"""
-        self.CL = CayleyTransform.cayley_transform(self.L, h)
+        self.CL = CayleyTransform.cayley_transform(self.L, h) if not self.normalize else CayleyTransform.cayley_transform(self.Ln, h)
         self.C_spectrum = CayleyTransform.compute_spectrum(self.CL)
         self.C_spectrum = np.array( sorted( self.C_spectrum, key=lambda x: x.real ) )
         self.h = h

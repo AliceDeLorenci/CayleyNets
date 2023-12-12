@@ -164,7 +164,7 @@ def jacobi_method_sparse(A_idx, A_weight, b, jacobi_iterations, num_nodes):
 
 class CayleyConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, r, normalization='sym', jacobi_iterations=10, sparse=False):
+    def __init__(self, in_channels, out_channels, r, normalization='sym', jacobi_iterations=10):
         """
         Implementation of a graph convolutional layer based on Cayley filters.
         Adapted from https://github.com/anon767/CayleyNet
@@ -179,8 +179,6 @@ class CayleyConv(nn.Module):
         self.normalization = normalization
         
         self.jacobi_iterations = jacobi_iterations
-
-        self.sparse = sparse
         
         self.r = r 
 
@@ -189,8 +187,6 @@ class CayleyConv(nn.Module):
             [ComplexLinear(in_channels, out_channels, bias=False, weight_initializer='glorot') for _ in range(r)]
                    )
 
-        # self.c0 = nn.Linear(in_channels, out_channels, device = device, bias = False)
-        # self.c = torch.nn.ModuleList( [torch.nn.Linear(in_channels, out_channels, device = device, bias = False).to(torch.cfloat) for _ in range(r)] )  # c parameter
         self.h = Parameter(torch.ones(1, device = device))  # zoom parameter
             
         self.reset_parameters()
@@ -198,7 +194,6 @@ class CayleyConv(nn.Module):
 
     def reset_parameters(self):
         self.h = Parameter(torch.ones(1, device = device))
-        # self.c0.reset_parameters()
         for c in self.c:
             c.reset_parameters()
             
@@ -208,48 +203,26 @@ class CayleyConv(nn.Module):
         Source: https://github.com/WhiteNoyse/SiGCN
         """
         num_nodes = x.shape[0]
+
         L_edge_index, L_edge_weight = get_laplacian(edge_index, edge_weight, 
                                                     normalization=self.normalization, dtype=torch.complex64,
                                                     num_nodes=num_nodes)
         
-        #L = torch.sparse_coo_tensor(L[0], L[1]).coalesce()
-        #L = self.h * L
-        #edge_index = edge_index.to(device)
 
-        #Jacobi method
-        # L to dense matrix
-        if self.sparse:
-            L_edge_weight_zoomed = self.h*L_edge_weight
+        L_edge_weight_zoomed = self.h*L_edge_weight
 
-            A_idx, A_weight = add_self_loops(edge_index=L_edge_index, edge_attr=L_edge_weight_zoomed, fill_value=torch.tensor(-1j))  # h*Delta - i*Id
-            B_idx, B_weight = add_self_loops(edge_index=L_edge_index, edge_attr=L_edge_weight_zoomed, fill_value=torch.tensor(1j))  # h*Delta + i*Id  
-
-        else:
-            L = to_dense_adj(edge_index = L[0], edge_attr = L[1])
-            # L is of size (1, N, N)
-            L = self.h * L
-            L = L.squeeze() # L is of size (N, N)
-            A = L + 1j*torch.eye(L.size()[0], device = device)
-            B = L - 1j*torch.eye(L.size()[0], device = device)
-           
-
-        
         # A = (hL + iI),  b = (hL - iI)x
-
-        y_i = x.to(torch.complex64)
-
+        A_idx, A_weight = add_self_loops(edge_index=L_edge_index, edge_attr=L_edge_weight_zoomed, fill_value=torch.tensor(-1j))  # h*Delta - i*Id
+        B_idx, B_weight = add_self_loops(edge_index=L_edge_index, edge_attr=L_edge_weight_zoomed, fill_value=torch.tensor(1j))  # h*Delta + i*Id  
         B = torch.sparse_coo_tensor(B_idx, B_weight, torch.Size([num_nodes,num_nodes]),device=device) 
         
         cumsum = 0 + 0j
+        y_i = x.to(torch.complex64)
         for i in range(1, self.r+1):
-        # for i in range(0, self.r):
-            # Jacobi method
             b = torch.sparse.mm(B, y_i)
             y_i = jacobi_method_sparse(A_idx, A_weight, b, self.jacobi_iterations, num_nodes)
             cumsum += self.c[i](y_i)
-        #print('cumsum', cumsum)
 
-        # return self.c0(x) + 2*torch.real(cumsum)
         return self.c[0](x) + 2*torch.real(cumsum)
 
     def __repr__(self):
@@ -259,20 +232,21 @@ class CayleyConv(nn.Module):
 
 
 class CayleyNet(torch.nn.Module):
-    def __init__(self, in_feats, n_classes, n_hidden, n_layers, r=5, p_dropout=0.5, normalization = 'sym', sparse=False, seed=0):
+
+    def __init__(self, in_feats, n_classes, n_hidden, n_layers, r=5, p_dropout=0.5, normalization = 'sym', seed=None):
 
         super(CayleyNet, self).__init__()
-        torch.manual_seed(seed)
+        if seed:
+            torch.manual_seed(seed)
     
         self.layers = nn.ModuleList()
-        self.layers.append(CayleyConv(in_feats, n_hidden, r, normalization=normalization, sparse=sparse))
+        self.layers.append(CayleyConv(in_feats, n_hidden, r, normalization=normalization))
         for _ in range(n_layers - 1):
-            self.layers.append(CayleyConv(n_hidden, n_hidden, r, normalization=normalization, sparse=sparse))
+            self.layers.append(CayleyConv(n_hidden, n_hidden, r, normalization=normalization))
 
-        self.layers.append(CayleyConv(n_hidden, n_classes, r, normalization=normalization, sparse=sparse))
+        self.layers.append(CayleyConv(n_hidden, n_classes, r, normalization=normalization))
         self.p = p_dropout # dropout probability
 
-        self.sparse = sparse
         self.p_dropout = p_dropout
         self.normalization = normalization
 

@@ -97,7 +97,7 @@ class ChebConv(MessagePassing):
         self.normalization = normalization
         self.lins = torch.nn.ModuleList([
             Linear(in_channels, out_channels, bias=False,
-                   weight_initializer='glorot') for _ in range(K)
+                   weight_initializer='glorot') for _ in range(K+1) # K is the polynomial order: c0, c1, ..., cK
         ])
 
         if bias:
@@ -190,7 +190,7 @@ class ChebConv(MessagePassing):
 
     def __repr__(self) -> str:
         return (f'{self.__class__.__name__}({self.in_channels}, '
-                f'{self.out_channels}, K={len(self.lins)}, '
+                f'{self.out_channels}, K={len(self.lins)-1}, '
                 f'normalization={self.normalization})')
 
 class ChebNet(torch.nn.Module):

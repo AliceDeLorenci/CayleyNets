@@ -57,7 +57,7 @@ def split_train_test_val(n_samples, test_samples=0.1, val_samples=0.1, seed=0):
     train[val] = 0
     return train, test, val
 
-def train(model, optimizer, edge_index, features, labels, train_mask, val_mask, epochs, verbose=True):
+def train(model, optimizer, edge_index, features, labels, train_mask, val_mask, epochs, evaluate=True, verbose=True):
     '''Train model.'''
 
     # save loss values for plotting
@@ -81,16 +81,20 @@ def train(model, optimizer, edge_index, features, labels, train_mask, val_mask, 
         optimizer.step()
 
         # Evaluation
-        score = eval_pytorch_geometric_model(model, edge_index, features, labels, train_mask)
-        train_score.append(score)
+        if evaluate:
+            score = eval_pytorch_geometric_model(model, edge_index, features, labels, train_mask)
+            train_score.append(score)
 
-        score = eval_pytorch_geometric_model(model, edge_index, features, labels, val_mask)
-        val_score.append(score)
+            score = eval_pytorch_geometric_model(model, edge_index, features, labels, val_mask)
+            val_score.append(score)
 
         # Print loss
         end = time.time()
         if verbose:
-            print("Epoch {:02d} | Loss {:.3f} | Accuracy (validation) {:.3f} | Elapsed time: {:.2f}s".format(e, loss.item(), score, end - start))
+            if evaluate: 
+                print("Epoch {:02d} | Loss {:.3f} | Accuracy (validation) {:.3f} | Elapsed time: {:.2f}s".format(e, loss.item(), score, end - start))
+            else:
+                print("Epoch {:02d} | Loss {:.3f} | Elapsed time: {:.2f}s".format(e, loss.item(), end - start))
         
     return loss_values, val_score, train_score
 
@@ -120,7 +124,7 @@ def eval_pytorch_geometric_model(model, edge_index, features, labels, mask):
 
 def plot_loss(loss):
     '''Plot loss.'''
-    plt.figure( figsize=(4,4) )
+    plt.figure( figsize=(4,3) )
     plt.plot(loss, label='train loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
@@ -129,7 +133,7 @@ def plot_loss(loss):
 
 def plot_accuracy(train_score, val_score):
     '''Plot train and validation accuracy.'''
-    plt.figure( figsize=(4,4) )
+    plt.figure( figsize=(4,3) )
     plt.plot(train_score, label='train accuracy')
     plt.plot(val_score, label='validation accuracy')
     plt.xlabel('Epoch', fontsize=12)
